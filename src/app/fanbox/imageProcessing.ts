@@ -36,7 +36,6 @@ export type OutputSettings = {
   background: PadBackground;
   maxDimension: number;
   maxSizeMB: number;
-  quality: number; // 0.4-1.0、圧縮ループの初期品質
 };
 
 export type ImageItem = {
@@ -81,27 +80,39 @@ export function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality?: 
   });
 }
 
-const MIN_QUALITY = 0.1; // startQualityとは独立した絶対下限
+const MIN_QUALITY = 0.1;
+const START_QUALITY = 0.92; // まずこの品質で書き出し、上限以下ならそのまま採用する（過剰圧縮を避ける）
+const QUALITY_SEARCH_STEPS = 6; // 二分探索の反復回数。品質の精度は概ね (START_QUALITY-MIN_QUALITY)/2^6 ≒ 1%刻み
 
-// 品質を段階的に下げながら、ファイルサイズが上限に収まるまで書き出す
+// サイズ上限に収まる範囲でできるだけ高い品質を自動的に探して書き出す（JPEG/WebPのみ。PNG等は無圧縮のまま）
 export async function encodeUnderSizeLimit(
   canvas: HTMLCanvasElement,
   mime: string,
   supportsQuality: boolean,
-  maxBytes: number,
-  startQuality: number
+  maxBytes: number
 ): Promise<Blob> {
   if (!supportsQuality) {
     return canvasToBlob(canvas, mime);
   }
-  let quality = startQuality;
-  let blob = await canvasToBlob(canvas, mime, quality);
-  while (blob.size > maxBytes && quality > MIN_QUALITY) {
-    quality = Math.max(MIN_QUALITY, quality - 0.1);
-    blob = await canvasToBlob(canvas, mime, quality);
-    if (quality === MIN_QUALITY) break;
+
+  const highQualityBlob = await canvasToBlob(canvas, mime, START_QUALITY);
+  if (highQualityBlob.size <= maxBytes) return highQualityBlob; // 既に上限以下なら不要な圧縮はしない
+
+  // 上限に収まる最大の品質を二分探索で探す
+  let lo = MIN_QUALITY;
+  let hi = START_QUALITY;
+  let best: Blob | null = null;
+  for (let i = 0; i < QUALITY_SEARCH_STEPS; i++) {
+    const mid = (lo + hi) / 2;
+    const candidate = await canvasToBlob(canvas, mime, mid);
+    if (candidate.size <= maxBytes) {
+      best = candidate;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
   }
-  return blob;
+  return best ?? (await canvasToBlob(canvas, mime, MIN_QUALITY));
 }
 
 // 指定した比率にあわせて中心から切り抜く範囲を求める（未編集画像の既定挙動）
@@ -154,10 +165,22 @@ export function computeContainFrameSize(
 ): { width: number; height: number } {
   if (preset.fixedSize) return preset.fixedSize;
   const ratio = effectiveRatio(preset) ?? bitmapW / bitmapH;
+  let frameW: number;
+  let frameH: number;
   if (ratio >= 1) {
-    return { width: maxDimension, height: Math.max(1, Math.round(maxDimension / ratio)) };
+    frameW = maxDimension;
+    frameH = Math.max(1, Math.round(maxDimension / ratio));
+  } else {
+    frameW = Math.max(1, Math.round(maxDimension * ratio));
+    frameH = maxDimension;
   }
-  return { width: Math.max(1, Math.round(maxDimension * ratio)), height: maxDimension };
+  // 元画像より大きく拡大しないよう、コンテンツの拡大率が1を超える場合はフレームごと縮小する
+  const contentScale = Math.min(frameW / bitmapW, frameH / bitmapH);
+  if (contentScale > 1) {
+    frameW = Math.max(1, Math.round(frameW / contentScale));
+    frameH = Math.max(1, Math.round(frameH / contentScale));
+  }
+  return { width: frameW, height: frameH };
 }
 
 // 画像を16x16に縮小して平均RGBを取得する
@@ -275,13 +298,7 @@ export async function processImageItem(
 
   const ext = extensionOf(item.file.name);
   const { mime, outExt, supportsQuality } = outputFormatFor(ext);
-  const blob = await encodeUnderSizeLimit(
-    canvas,
-    mime,
-    supportsQuality,
-    settings.maxSizeMB * 1024 * 1024,
-    settings.quality
-  );
+  const blob = await encodeUnderSizeLimit(canvas, mime, supportsQuality, settings.maxSizeMB * 1024 * 1024);
 
   const baseName = item.file.name.replace(/\.[^.]+$/, "");
   const fileName = `${String(index + 1).padStart(2, "0")}_${baseName}.${outExt}`;

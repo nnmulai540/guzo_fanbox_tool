@@ -8,7 +8,6 @@ export type SavedPreset = {
   background: PadBackground;
   maxDimension: number;
   maxSizeMB: number;
-  quality: number;
 };
 
 const STORAGE_KEY = "fanbox-tool:saved-presets";

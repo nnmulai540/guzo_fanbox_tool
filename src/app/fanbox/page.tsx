@@ -50,9 +50,8 @@ export default function FanboxToolPage() {
   const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [mode, setMode] = useState<FitMode>("cover");
   const [background, setBackground] = useState<PadBackground>({ kind: "white" });
-  const [maxDimension, setMaxDimension] = useState(2048);
-  const [maxSizeMB, setMaxSizeMB] = useState(10);
-  const [quality, setQuality] = useState(0.85);
+  const [maxDimension, setMaxDimension] = useState(1200);
+  const [maxSizeMB, setMaxSizeMB] = useState(2);
   const [results, setResults] = useState<ResultItem[]>([]);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +142,7 @@ export default function FanboxToolPage() {
     results.forEach((r) => URL.revokeObjectURL(r.url));
     setResults([]);
 
-    const settings = { preset, mode, background, maxDimension, maxSizeMB, quality };
+    const settings = { preset, mode, background, maxDimension, maxSizeMB };
     const output: ResultItem[] = [];
     try {
       for (let i = 0; i < items.length; i++) {
@@ -161,7 +160,7 @@ export default function FanboxToolPage() {
   const handleSavePreset = () => {
     const name = newPresetName.trim();
     if (!name) return;
-    const saved: SavedPreset = { schemaVersion: 1, name, presetId, mode, background, maxDimension, maxSizeMB, quality };
+    const saved: SavedPreset = { schemaVersion: 1, name, presetId, mode, background, maxDimension, maxSizeMB };
     const { presets, success } = upsertSavedPreset(saved);
     setSavedPresets(presets);
     setSelectedSavedPresetName(name);
@@ -177,7 +176,6 @@ export default function FanboxToolPage() {
     setBackground(saved.background);
     setMaxDimension(saved.maxDimension);
     setMaxSizeMB(saved.maxSizeMB);
-    setQuality(saved.quality);
     setPresetNotice(`「${saved.name}」を読み込みました`);
   };
 
@@ -369,15 +367,18 @@ export default function FanboxToolPage() {
                   {preset.fixedSize.width}×{preset.fixedSize.height}px 固定
                 </p>
               ) : (
-                <input
-                  type="range"
-                  min={512}
-                  max={4096}
-                  step={128}
-                  value={maxDimension}
-                  onChange={(e) => setMaxDimension(Number(e.target.value))}
-                  className="w-full"
-                />
+                <>
+                  <input
+                    type="range"
+                    min={400}
+                    max={4000}
+                    step={100}
+                    value={maxDimension}
+                    onChange={(e) => setMaxDimension(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-xs text-zinc-500">元の画像がこれより小さい場合は拡大しません</p>
+                </>
               )}
             </div>
             <div>
@@ -391,18 +392,9 @@ export default function FanboxToolPage() {
                 onChange={(e) => setMaxSizeMB(Number(e.target.value))}
                 className="w-full"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">JPEG品質: {Math.round(quality * 100)}%</label>
-              <input
-                type="range"
-                min={40}
-                max={100}
-                step={5}
-                value={Math.round(quality * 100)}
-                onChange={(e) => setQuality(Number(e.target.value) / 100)}
-                className="w-full"
-              />
+              <p className="mt-1 text-xs text-zinc-500">
+                この範囲に収まるようJPEG/WebPの品質は自動調整されます（既に収まっていれば圧縮しません）
+              </p>
             </div>
           </div>
 
