@@ -52,6 +52,7 @@ export type ResultItem = {
   fileName: string;
   originalPreviewUrl: string;
   url: string;
+  blob: Blob;
   width: number;
   height: number;
   sizeKB: number;
@@ -308,6 +309,7 @@ export async function processImageItem(
     fileName,
     originalPreviewUrl: item.previewUrl,
     url: URL.createObjectURL(blob),
+    blob,
     width: dw,
     height: dh,
     sizeKB: blob.size / 1024,
