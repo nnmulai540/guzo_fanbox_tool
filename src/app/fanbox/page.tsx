@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Area as CropArea, Point } from "react-easy-crop";
 import CropEditorModal from "./CropEditorModal";
 import {
@@ -8,6 +9,7 @@ import {
   effectiveRatio,
   computeCoverOutputSize,
   processImageItem,
+  outputFormatFor,
   IMAGE_EXTENSIONS,
   extensionOf,
   type ImageItem,
@@ -15,6 +17,9 @@ import {
   type FitMode,
   type PadBackground,
 } from "./imageProcessing";
+import { createBlankArticle, saveArticle, saveImage } from "../articles/storage";
+import type { ArticleBlock } from "../articles/types";
+
 const BACKGROUND_OPTIONS: { kind: PadBackground["kind"]; label: string }[] = [
   { kind: "white", label: "白" },
   { kind: "black", label: "黒" },
@@ -39,6 +44,7 @@ function filterImageFiles(fileList: FileList | File[]): File[] {
 }
 
 export default function FanboxToolPage() {
+  const router = useRouter();
   const [items, setItems] = useState<ImageItem[]>([]);
   const [presetId, setPresetId] = useState(PRESETS[0].id);
   const [mode, setMode] = useState<FitMode>("cover");
@@ -50,6 +56,8 @@ export default function FanboxToolPage() {
   const [error, setError] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [creatingArticle, setCreatingArticle] = useState(false);
+  const [articleError, setArticleError] = useState<string | null>(null);
 
   const dragCounterRef = useRef(0);
   const itemsRef = useRef<ImageItem[]>(items);
@@ -140,6 +148,30 @@ export default function FanboxToolPage() {
       setError(err instanceof Error ? err.message : "変換中にエラーが発生しました");
     } finally {
       setProcessing(false);
+    }
+  };
+
+  // 変換済みの画像をそのまま新しい記事下書きに引き継いで記事作成画面へ遷移する
+  const handleCreateArticle = async () => {
+    if (results.length === 0) return;
+    setCreatingArticle(true);
+    setArticleError(null);
+    try {
+      const blocks: ArticleBlock[] = [];
+      for (const r of results) {
+        const imageId = crypto.randomUUID();
+        const mimeType = outputFormatFor(extensionOf(r.fileName)).mime;
+        // 先に画像を保存してから記事側の参照を作る（保存に失敗した画像を指す
+        // ダングリング参照を記事に残さないため）
+        await saveImage(imageId, { blob: r.blob, width: r.width, height: r.height, mimeType, sizeKB: r.sizeKB });
+        blocks.push({ id: crypto.randomUUID(), type: "image", imageId });
+      }
+      const article = { ...createBlankArticle(), blocks };
+      await saveArticle(article);
+      router.push(`/articles/${article.id}`);
+    } catch {
+      setArticleError("記事の作成に失敗しました（ブラウザの保存領域をご確認ください）");
+      setCreatingArticle(false);
     }
   };
 
@@ -370,7 +402,18 @@ export default function FanboxToolPage() {
         {/* 結果 */}
         {results.length > 0 && (
           <div>
-            <h2 className="text-lg font-medium mb-4">結果（{results.length}枚）</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h2 className="text-lg font-medium">結果（{results.length}枚）</h2>
+              <button
+                type="button"
+                onClick={handleCreateArticle}
+                disabled={creatingArticle}
+                className="rounded-full border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-sm hover:border-zinc-400 disabled:opacity-40"
+              >
+                {creatingArticle ? "作成中…" : "この画像で記事を作成"}
+              </button>
+            </div>
+            {articleError && <p className="text-sm text-red-500 mb-4">{articleError}</p>}
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {results.map((r) => (
                 <li key={r.key} className="flex flex-col gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3">
