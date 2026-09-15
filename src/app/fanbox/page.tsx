@@ -15,13 +15,6 @@ import {
   type FitMode,
   type PadBackground,
 } from "./imageProcessing";
-import {
-  loadSavedPresets,
-  upsertSavedPreset,
-  deleteSavedPreset,
-  type SavedPreset,
-} from "./presets";
-
 const BACKGROUND_OPTIONS: { kind: PadBackground["kind"]; label: string }[] = [
   { kind: "white", label: "白" },
   { kind: "black", label: "黒" },
@@ -57,10 +50,6 @@ export default function FanboxToolPage() {
   const [error, setError] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [savedPresets, setSavedPresets] = useState<SavedPreset[]>([]);
-  const [selectedSavedPresetName, setSelectedSavedPresetName] = useState("");
-  const [newPresetName, setNewPresetName] = useState("");
-  const [presetNotice, setPresetNotice] = useState<string | null>(null);
 
   const dragCounterRef = useRef(0);
   const itemsRef = useRef<ImageItem[]>(items);
@@ -75,9 +64,6 @@ export default function FanboxToolPage() {
   }, [results]);
 
   useEffect(() => {
-    // localStorageはブラウザでしか読めないため、SSRとのハイドレーション不一致を避けてマウント後に読み込む
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSavedPresets(loadSavedPresets());
     return () => {
       itemsRef.current.forEach((it) => URL.revokeObjectURL(it.previewUrl));
       resultsRef.current.forEach((r) => URL.revokeObjectURL(r.url));
@@ -155,35 +141,6 @@ export default function FanboxToolPage() {
     } finally {
       setProcessing(false);
     }
-  };
-
-  const handleSavePreset = () => {
-    const name = newPresetName.trim();
-    if (!name) return;
-    const saved: SavedPreset = { schemaVersion: 1, name, presetId, mode, background, maxDimension, maxSizeMB };
-    const { presets, success } = upsertSavedPreset(saved);
-    setSavedPresets(presets);
-    setSelectedSavedPresetName(name);
-    setNewPresetName("");
-    setPresetNotice(success ? `「${name}」を保存しました` : "保存に失敗しました（ブラウザの設定をご確認ください）");
-  };
-
-  const handleLoadPreset = () => {
-    const saved = savedPresets.find((p) => p.name === selectedSavedPresetName);
-    if (!saved) return;
-    setPresetId(saved.presetId);
-    setMode(saved.mode);
-    setBackground(saved.background);
-    setMaxDimension(saved.maxDimension);
-    setMaxSizeMB(saved.maxSizeMB);
-    setPresetNotice(`「${saved.name}」を読み込みました`);
-  };
-
-  const handleDeletePreset = () => {
-    if (!selectedSavedPresetName) return;
-    setSavedPresets(deleteSavedPreset(selectedSavedPresetName));
-    setPresetNotice(`「${selectedSavedPresetName}」を削除しました`);
-    setSelectedSavedPresetName("");
   };
 
   return (
@@ -371,7 +328,7 @@ export default function FanboxToolPage() {
                   <input
                     type="range"
                     min={400}
-                    max={4000}
+                    max={1200}
                     step={100}
                     value={maxDimension}
                     onChange={(e) => setMaxDimension(Number(e.target.value))}
@@ -386,8 +343,8 @@ export default function FanboxToolPage() {
               <input
                 type="range"
                 min={1}
-                max={20}
-                step={1}
+                max={2}
+                step={0.5}
                 value={maxSizeMB}
                 onChange={(e) => setMaxSizeMB(Number(e.target.value))}
                 className="w-full"
@@ -396,59 +353,6 @@ export default function FanboxToolPage() {
                 この範囲に収まるようJPEG/WebPの品質は自動調整されます（既に収まっていれば圧縮しません）
               </p>
             </div>
-          </div>
-
-          {/* 保存済み設定プリセット */}
-          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 flex flex-col gap-3">
-            <label className="block text-sm font-medium">設定プリセット</label>
-            <div className="flex flex-wrap gap-2 items-center">
-              <select
-                value={selectedSavedPresetName}
-                onChange={(e) => setSelectedSavedPresetName(e.target.value)}
-                className="rounded-full border border-zinc-300 dark:border-zinc-700 bg-transparent px-3 py-1.5 text-sm"
-              >
-                <option value="">保存済み設定を選択</option>
-                {savedPresets.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                disabled={!selectedSavedPresetName}
-                onClick={handleLoadPreset}
-                className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-400 disabled:opacity-40"
-              >
-                読み込む
-              </button>
-              <button
-                type="button"
-                disabled={!selectedSavedPresetName}
-                onClick={handleDeletePreset}
-                className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-400 disabled:opacity-40"
-              >
-                削除
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <input
-                type="text"
-                value={newPresetName}
-                onChange={(e) => setNewPresetName(e.target.value)}
-                placeholder="新しい設定名"
-                className="rounded-full border border-zinc-300 dark:border-zinc-700 bg-transparent px-3 py-1.5 text-sm"
-              />
-              <button
-                type="button"
-                disabled={!newPresetName.trim()}
-                onClick={handleSavePreset}
-                className="rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-400 disabled:opacity-40"
-              >
-                現在の設定を保存
-              </button>
-            </div>
-            {presetNotice && <p className="text-xs text-zinc-500">{presetNotice}</p>}
           </div>
         </div>
 
