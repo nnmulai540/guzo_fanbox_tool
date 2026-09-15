@@ -40,6 +40,7 @@ export async function deleteArticle(id: string): Promise<void> {
   const article = await loadArticle(id);
   if (article) {
     const imageIds = article.blocks.filter((b) => b.type === "image").map((b) => b.imageId);
+    if (article.headerImageId) imageIds.push(article.headerImageId);
     await Promise.all(imageIds.map((imageId) => deleteImage(imageId)));
   }
   await del(id, articleStore);

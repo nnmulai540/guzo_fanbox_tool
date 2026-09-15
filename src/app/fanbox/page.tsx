@@ -58,6 +58,7 @@ export default function FanboxToolPage() {
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [creatingArticle, setCreatingArticle] = useState(false);
   const [articleError, setArticleError] = useState<string | null>(null);
+  const [headerResultKey, setHeaderResultKey] = useState<string | null>(null);
 
   const dragCounterRef = useRef(0);
   const itemsRef = useRef<ImageItem[]>(items);
@@ -135,6 +136,7 @@ export default function FanboxToolPage() {
     setError(null);
     results.forEach((r) => URL.revokeObjectURL(r.url));
     setResults([]);
+    setHeaderResultKey(null);
 
     const settings = { preset, mode, background, maxDimension, maxSizeMB };
     const output: ResultItem[] = [];
@@ -151,22 +153,38 @@ export default function FanboxToolPage() {
     }
   };
 
-  // 変換済みの画像をそのまま新しい記事下書きに引き継いで記事作成画面へ遷移する
+  // 変換済みの画像をそのまま新しい記事下書きに引き継いで記事作成画面へ遷移する。
+  // ヘッダーに指定した1枚は記事のheaderImageIdへ、残りは本文の画像ブロックとして、
+  // 画像と画像の間には書き込みやすいよう空のテキストブロックを挟んで並べる。
   const handleCreateArticle = async () => {
     if (results.length === 0) return;
     setCreatingArticle(true);
     setArticleError(null);
     try {
-      const blocks: ArticleBlock[] = [];
-      for (const r of results) {
+      const saveResultAsImage = async (r: ResultItem): Promise<string> => {
         const imageId = crypto.randomUUID();
         const mimeType = outputFormatFor(extensionOf(r.fileName)).mime;
         // 先に画像を保存してから記事側の参照を作る（保存に失敗した画像を指す
         // ダングリング参照を記事に残さないため）
         await saveImage(imageId, { blob: r.blob, width: r.width, height: r.height, mimeType, sizeKB: r.sizeKB });
+        return imageId;
+      };
+
+      const headerResult = results.find((r) => r.key === headerResultKey) ?? null;
+      const bodyResults = results.filter((r) => r.key !== headerResultKey);
+
+      const headerImageId = headerResult ? await saveResultAsImage(headerResult) : undefined;
+
+      const blocks: ArticleBlock[] = [];
+      for (let i = 0; i < bodyResults.length; i++) {
+        const imageId = await saveResultAsImage(bodyResults[i]);
         blocks.push({ id: crypto.randomUUID(), type: "image", imageId });
+        if (i < bodyResults.length - 1) {
+          blocks.push({ id: crypto.randomUUID(), type: "text", text: "" });
+        }
       }
-      const article = { ...createBlankArticle(), blocks };
+
+      const article = { ...createBlankArticle(), headerImageId, blocks };
       await saveArticle(article);
       router.push(`/articles/${article.id}`);
     } catch {
@@ -413,43 +431,65 @@ export default function FanboxToolPage() {
                 {creatingArticle ? "作成中…" : "この画像で記事を作成"}
               </button>
             </div>
+            <p className="text-xs text-zinc-500 mb-4">
+              各カードの「ヘッダーにする」で1枚だけ記事のヘッダー画像に指定できます（未指定でも作成可）。それ以外の画像は本文に並び、画像の間には空の本文欄が挿入されます。
+            </p>
             {articleError && <p className="text-sm text-red-500 mb-4">{articleError}</p>}
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {results.map((r) => (
-                <li key={r.key} className="flex flex-col gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <p className="text-[11px] text-zinc-500 mb-1">変換前</p>
-                      {/* eslint-disable-next-line @next/next/no-img-element -- ブラウザ生成のblob URLなのでnext/imageは使わない */}
-                      <img
-                        src={r.originalPreviewUrl}
-                        alt={`${r.fileName}（変換前）`}
-                        className="w-full aspect-square object-contain rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
-                      />
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-zinc-500 mb-1">変換後</p>
-                      {/* eslint-disable-next-line @next/next/no-img-element -- ブラウザ生成のblob URLなのでnext/imageは使わない */}
-                      <img
-                        src={r.url}
-                        alt={r.fileName}
-                        className="w-full aspect-square object-cover rounded-lg border border-zinc-200 dark:border-zinc-800"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-zinc-500 truncate">{r.fileName}</p>
-                  <p className="text-xs text-zinc-500">
-                    {r.width}×{r.height} / {r.sizeKB.toFixed(0)}KB
-                  </p>
-                  <a
-                    href={r.url}
-                    download={r.fileName}
-                    className="text-center text-sm rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 hover:border-zinc-400"
+              {results.map((r) => {
+                const isHeader = headerResultKey === r.key;
+                return (
+                  <li
+                    key={r.key}
+                    className={`flex flex-col gap-2 rounded-lg border p-3 ${
+                      isHeader ? "border-foreground" : "border-zinc-200 dark:border-zinc-800"
+                    }`}
                   >
-                    ダウンロード
-                  </a>
-                </li>
-              ))}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[11px] text-zinc-500 mb-1">変換前</p>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- ブラウザ生成のblob URLなのでnext/imageは使わない */}
+                        <img
+                          src={r.originalPreviewUrl}
+                          alt={`${r.fileName}（変換前）`}
+                          className="w-full aspect-square object-contain rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
+                        />
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-zinc-500 mb-1">変換後</p>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- ブラウザ生成のblob URLなのでnext/imageは使わない */}
+                        <img
+                          src={r.url}
+                          alt={r.fileName}
+                          className="w-full aspect-square object-cover rounded-lg border border-zinc-200 dark:border-zinc-800"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-500 truncate">{r.fileName}</p>
+                    <p className="text-xs text-zinc-500">
+                      {r.width}×{r.height} / {r.sizeKB.toFixed(0)}KB
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setHeaderResultKey(isHeader ? null : r.key)}
+                      className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                        isHeader
+                          ? "bg-foreground text-background border-foreground"
+                          : "border-zinc-300 dark:border-zinc-700 hover:border-zinc-400"
+                      }`}
+                    >
+                      {isHeader ? "ヘッダーに指定中" : "ヘッダーにする"}
+                    </button>
+                    <a
+                      href={r.url}
+                      download={r.fileName}
+                      className="text-center text-sm rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 hover:border-zinc-400"
+                    >
+                      ダウンロード
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

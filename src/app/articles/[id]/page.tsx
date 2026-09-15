@@ -124,8 +124,12 @@ export default function ArticleEditorPage() {
     };
   }, [flush]);
 
-  // 記事が参照する画像のBlob URLを読み込む。記事(id)や画像構成が変わったら作り直す
-  const imageIds = article ? article.blocks.filter((b): b is Extract<ArticleBlock, { type: "image" }> => b.type === "image").map((b) => b.imageId) : [];
+  // 記事が参照する画像（ヘッダー画像＋本文の画像ブロック）のBlob URLを読み込む。
+  // 記事(id)や画像構成が変わったら作り直す
+  const bodyImageIds = article
+    ? article.blocks.filter((b): b is Extract<ArticleBlock, { type: "image" }> => b.type === "image").map((b) => b.imageId)
+    : [];
+  const imageIds = article?.headerImageId ? [article.headerImageId, ...bodyImageIds] : bodyImageIds;
   const imageIdsKey = imageIds.join(",");
 
   useEffect(() => {
@@ -170,6 +174,14 @@ export default function ArticleEditorPage() {
     if (target?.type === "image") {
       deleteImage(target.imageId).catch(() => {});
     }
+  };
+
+  const removeHeaderImage = () => {
+    const currentHeaderId = article?.headerImageId;
+    if (!currentHeaderId) return;
+    updateArticle((a) => ({ ...a, headerImageId: undefined }));
+    // 記事stateから外したあとに削除する（保存中のオートセーブが古い参照を含まないようにするため）
+    deleteImage(currentHeaderId).catch(() => {});
   };
 
   const moveBlock = (blockId: string, to: "up" | "down" | "top" | "bottom") => {
@@ -244,9 +256,33 @@ export default function ArticleEditorPage() {
       </div>
 
       {viewMode === "preview" ? (
-        <ArticlePreview title={article.title} blocks={article.blocks} imageUrls={imageUrls} />
+        <ArticlePreview
+          title={article.title}
+          headerImageUrl={article.headerImageId ? imageUrls.get(article.headerImageId) : undefined}
+          blocks={article.blocks}
+          imageUrls={imageUrls}
+        />
       ) : (
         <div className="flex flex-col gap-6">
+          {article.headerImageId && (
+            <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3">
+              <p className="text-xs text-zinc-500 mb-2">ヘッダー画像</p>
+              {/* eslint-disable-next-line @next/next/no-img-element -- ブラウザ生成のblob URLなのでnext/imageは使わない */}
+              <img
+                src={imageUrls.get(article.headerImageId)}
+                alt=""
+                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800"
+              />
+              <button
+                type="button"
+                onClick={removeHeaderImage}
+                className="mt-2 rounded-full border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-xs hover:border-zinc-400"
+              >
+                ヘッダー画像を外す
+              </button>
+            </div>
+          )}
+
           <input
             type="text"
             value={article.title}
