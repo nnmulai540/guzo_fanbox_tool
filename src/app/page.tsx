@@ -7,12 +7,20 @@ export default function Home() {
       <p className="max-w-md text-zinc-600 dark:text-zinc-400">
         ここにひとこと自己紹介やコンセプトを書く。
       </p>
-      <Link
-        href="/blog"
-        className="rounded-full bg-foreground px-6 py-3 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-      >
-        ブログを見る
-      </Link>
+      <div className="flex gap-4">
+        <Link
+          href="/blog"
+          className="rounded-full bg-foreground px-6 py-3 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+        >
+          ブログを見る
+        </Link>
+        <Link
+          href="/fanbox"
+          className="rounded-full border border-zinc-300 dark:border-zinc-700 px-6 py-3 transition-colors hover:border-zinc-400"
+        >
+          画像リサイズツール
+        </Link>
+      </div>
     </main>
   );
 }
